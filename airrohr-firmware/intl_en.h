@@ -37,6 +37,7 @@ const char INTL_MESSINTERVALL[] PROGMEM = "Measuring interval";
 const char INTL_DAUER_ROUTERMODUS[] PROGMEM = "Duration router mode";
 const char INTL_WEITERE_APIS[] PROGMEM = "More API";
 const char INTL_AN_EIGENE_API_SENDEN[] PROGMEM = "Send data to own API";
+const char INTL_AN_MQTT_API_SENDEN[] PROGMEM = "Send data to own MQTT";
 const char INTL_SERVER[] PROGMEM = "Server"; 
 const char INTL_PFAD[] PROGMEM = "Path"; 
 const char INTL_PORT[] PROGMEM = "Port"; 

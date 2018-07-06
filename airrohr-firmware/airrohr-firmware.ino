@@ -1,5 +1,5 @@
 #include <Arduino.h>
-#define INTL_DE
+#define INTL_EN
 
 /************************************************************************
 /*                                                                      *
@@ -113,6 +113,10 @@
 #include <DallasTemperature.h>
 #include <TinyGPS++.h>
 #include <Ticker.h>
+#include <PubSubClient.h>
+
+//#define mqtt_server "192.168.0.223"
+#define mqtt_topic "feinstaubsensor/data"
 
 #if defined(INTL_BG)
 #include "intl_bg.h"
@@ -181,6 +185,7 @@ bool send2custom = 0;
 bool send2lora = 1;
 bool send2influx = 0;
 bool send2csv = 0;
+bool send2mqtt=1;
 bool auto_update = 0;
 bool use_beta = 0;
 bool has_display = 0;
@@ -220,12 +225,18 @@ char user_custom[65] = "";
 char pwd_custom[65] = "";
 String basic_auth_custom = "";
 
+char host_mqtt[100] = "192.168.234.1";
+int port_mqtt = 1883;
+
 const char* update_host = "www.madavi.de";
 const char* update_url = "/sensor/update/firmware.php";
 const int update_port = 80;
 
 ESP8266WebServer server(80);
 int TimeZone = 1;
+
+WiFiClient espClient;
+PubSubClient psclient(espClient);
 
 /*****************************************************************
 /* Display definitions                                           *
@@ -797,6 +808,10 @@ void copyExtDef() {
 
 	strcpyDef(senseboxid, SENSEBOXID);
 
+	setDef(send2mqtt, SEND2MQTT);
+	strcpyDef(host_mqtt, HOST_MQTT);
+	setDef(port_mqtt, PORT_MQTT);
+
 	setDef(send2custom, SEND2CUSTOM);
 	strcpyDef(host_custom, HOST_CUSTOM);
 	strcpyDef(url_custom, URL_CUSTOM);
@@ -804,6 +819,8 @@ void copyExtDef() {
 	strcpyDef(user_custom, USER_CUSTOM);
 	strcpyDef(pwd_custom, PWD_CUSTOM);
 
+
+	
 	setDef(send2influx, SEND2INFLUX);
 	strcpyDef(host_influx, HOST_INFLUX);
 	strcpyDef(url_influx, URL_INFLUX);
@@ -885,6 +902,9 @@ void readConfig() {
 					setFromJSON(sending_intervall_ms);
 					setFromJSON(time_for_wifi_config);
 					strcpyFromJSON(senseboxid);
+					setFromJSON(send2mqtt);
+					strcpyFromJSON(host_mqtt);
+					setFromJSON(port_mqtt);
 					setFromJSON(send2custom);
 					strcpyFromJSON(host_custom);
 					strcpyFromJSON(url_custom);
@@ -958,8 +978,11 @@ void writeConfig() {
 	copyToJSON_String(sending_intervall_ms);
 	copyToJSON_String(time_for_wifi_config);
 	copyToJSON_String(senseboxid);
+	copyToJSON_Bool(send2mqtt);
+	copyToJSON_String(host_mqtt);
 	copyToJSON_Bool(send2custom);
 	copyToJSON_String(host_custom);
+	copyToJSON_Int(port_mqtt);
 	copyToJSON_String(url_custom);
 	copyToJSON_Int(port_custom);
 	copyToJSON_String(user_custom);
@@ -1343,6 +1366,11 @@ void webserver_config() {
 		page_content += F("<table>");
 		page_content += form_input("senseboxid", "senseBox-ID: ", senseboxid, 50);
 		page_content += F("</table><br/>");
+		page_content += form_checkbox("send2MQTT", FPSTR(INTL_AN_MQTT_API_SENDEN), send2mqtt);
+		page_content += F("<table>");
+		page_content += form_input("host_mqtt", FPSTR(INTL_SERVER), host_mqtt, 50);
+		page_content += form_input("port_mqtt", FPSTR(INTL_PORT), String(port_mqtt), 30);
+		page_content += F("</table><br/>");
 		page_content += form_checkbox("send2custom", FPSTR(INTL_AN_EIGENE_API_SENDEN), send2custom);
 		page_content += F("<table>");
 		page_content += form_input("host_custom", FPSTR(INTL_SERVER), host_custom, 50);
@@ -1411,6 +1439,10 @@ void webserver_config() {
 
 		readCharParam(senseboxid);
 
+		readBoolParam(send2mqtt);
+		readCharParam(host_mqtt);
+		readIntParam(port_mqtt);
+
 		readBoolParam(send2custom);
 		readCharParam(host_custom);
 		readCharParam(url_custom);
@@ -1418,6 +1450,7 @@ void webserver_config() {
 		readCharParam(user_custom);
 		readPasswdParam(pwd_custom);
 
+		
 		readBoolParam(send2influx);
 		readCharParam(host_influx);
 		readCharParam(url_influx);
@@ -1456,6 +1489,10 @@ void webserver_config() {
 		page_content += line_from_value(tmpl(FPSTR(INTL_SENDEN_AN), F("opensensemap")), String(send2sensemap));
 		page_content += F("<br/>senseBox-ID ");
 		page_content += senseboxid;
+		page_content += F("<br/><br/>Eigene MQTT: ");
+		page_content += String(send2mqtt);
+		page_content += line_from_value(FPSTR(INTL_SERVER), host_mqtt);
+		page_content += line_from_value(FPSTR(INTL_PORT), String(port_mqtt));
 		page_content += F("<br/><br/>Eigene API: ");
 		page_content += String(send2custom);
 		page_content += line_from_value(FPSTR(INTL_SERVER), host_custom);
@@ -2149,10 +2186,70 @@ void sendLuftdaten(const String& data, const int pin, const char* host, const in
 void send_lora(const String& data) {
 }
 
+
+void pscallback(char* topic, byte* payload, unsigned int length) {
+	debug_out(F("MQTT server Message arrived ["), DEBUG_MIN_INFO, 0);
+	debug_out(topic, DEBUG_MIN_INFO, 0);
+	debug_out(F(" ]"), DEBUG_MIN_INFO, 1);
+	debug_out(F("Payload: "), DEBUG_MIN_INFO, 0);
+	String s;
+	for (int i = 0; i < length; i++) {
+		s+=(char)payload[i];
+	}
+	debug_out(s, DEBUG_MIN_INFO, 0);
+}
+
+bool psreconnect() {
+  // Loop until we're reconnected
+  if (!psclient.connected()) {
+    debug_out(F("Attempting MQTT connection..."), DEBUG_MIN_INFO, 1);
+    // Create a random client ID
+    String clientId = "ESP8266Client-";
+    clientId += esp_chipid;
+	psclient.setServer(host_mqtt, port_mqtt);
+    // Attempt to connect
+    if (psclient.connect(clientId.c_str())) {
+      debug_out(F("MQTT client connected"), DEBUG_MIN_INFO, 1);
+      // Once connected, publish an announcement...
+//      psclient.publish("outTopic", "hello world");
+      // ... and resubscribe
+//      client.subscribe("inTopic");
+    } else {
+      debug_out(F("MQTT client connection failed, rc="), DEBUG_MIN_INFO, 0);
+      debug_out(String(psclient.state()), DEBUG_MIN_INFO, 1);
+    }
+    return psclient.connected();
+  }
+}
+
 /*****************************************************************
 /* send data to mqtt api                                         *
 /*****************************************************************/
 // rejected (see issue #33)
+
+void send_mqtt(const String& data){
+	bool ret;
+	int blen=data.length()+1;
+	char buff[blen];
+	data.toCharArray(buff,blen);
+
+	if (!psclient.connected()) {
+		ret=psreconnect();
+	}
+	if(ret){
+//		if(!psclient.publish(mqtt_topic, "Hello!")){
+		if(!psclient.publish(mqtt_topic, buff,blen)){
+			debug_out(F("MQTT client publish failed! length = "), DEBUG_MIN_INFO, 0);
+			debug_out(String(blen) , DEBUG_MIN_INFO, 1);
+			debug_out(F("MQTT client  state = "), DEBUG_MIN_INFO, 0);
+			debug_out(String(psclient.state()) , DEBUG_MIN_INFO, 1);
+		}
+//	debug_out(F("Payload: "), DEBUG_MIN_INFO, 0);
+//	debug_out(buff, DEBUG_MIN_INFO, 1);
+//	psclient.publish();
+	}
+	
+}
 
 /*****************************************************************
 /* send data to influxdb                                         *
@@ -3600,6 +3697,11 @@ void setup() {
 	serialSDS.begin(9600);
 	debug_out(F("\nChipId: "), DEBUG_MIN_INFO, 0);
 	debug_out(esp_chipid, DEBUG_MIN_INFO, 1);
+	
+	debug_out(F("Connecting to mqtt server: "), DEBUG_MIN_INFO, 0);
+	debug_out(host_mqtt, DEBUG_MIN_INFO, 1);
+	psclient.setServer(host_mqtt, port_mqtt);
+	psclient.setCallback(pscallback);
 
 	if (ppd_read) {
 		pinMode(PPD_PIN_PM1, INPUT_PULLUP);                 // Listen at the designated PIN
@@ -3810,6 +3912,8 @@ void loop() {
 	}
 
 	server.handleClient();
+	psclient.loop();
+
 
 	if (send_now) {
 		if (dht_read) {
@@ -4027,6 +4131,14 @@ void loop() {
 			start_send = micros();
 			sendData(data_4_custom, 0, host_custom, port_custom, url_custom, basic_auth_custom.c_str(), FPSTR(TXT_CONTENT_TYPE_JSON));
 			sum_send_time += micros() - start_send;
+		}
+		
+		if (send2mqtt){
+			data_4_custom = data;
+			data_4_custom.remove(0, 1);
+			data_4_custom = "{\"esp8266id\": \"" + String(esp_chipid) + "\", " + data_4_custom;
+			debug_out(F("Sending to MQTT api: "), DEBUG_MIN_INFO, 1);
+			send_mqtt(data_4_custom); 
 		}
 
 		server.begin();

@@ -1,0 +1,49 @@
+﻿sensor:
+- platform: mqtt
+  name: feinstaubsensor
+  state_topic: "feinstaubsensor/data"
+  json_attributes: sensordatavalues
+  value_template: '{{ value_json.none }}'
+
+- platform: template
+  sensors:
+    air_quality_pm10:
+      friendly_name: 'PM10'
+      unit_of_measurement: 'µg/m³'
+      value_template: >-
+        {% for i in states.sensor.feinstaubsensor.attributes.sensordatavalues %}
+            {% if i.value_type == 'SDS_P1' %}
+                {{ i.value }}
+            {% endif %}
+        {% endfor %}
+
+    air_quality_pm25:
+      friendly_name: 'PM2.5'
+      unit_of_measurement: 'µg/m³'
+      value_template: >-
+        {% for i in states.sensor.feinstaubsensor.attributes.sensordatavalues %}
+            {% if i.value_type == 'SDS_P2' %}
+                {{ i.value }}
+            {% endif %}
+        {% endfor %}
+
+    air_quality_temp:
+      friendly_name: 'T'
+      unit_of_measurement: '°C'
+      value_template: >-
+        {% for i in states.sensor.feinstaubsensor.attributes.sensordatavalues %}
+            {% if i.value_type == 'BMP_temperature' %}
+                {{ i.value }}
+            {% endif %}
+        {% endfor %}
+
+    air_quality_pressure:
+      friendly_name: 'P'
+      unit_of_measurement: 'mbar'
+      value_template: >-
+        {% for i in states.sensor.feinstaubsensor.attributes.sensordatavalues %}
+            {% if i.value_type == 'BMP_pressure' %}
+                {{ float(i.value)*0.01 }}
+            {% endif %}
+        {% endfor %}
+        

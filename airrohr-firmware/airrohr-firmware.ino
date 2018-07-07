@@ -980,9 +980,9 @@ void writeConfig() {
 	copyToJSON_String(senseboxid);
 	copyToJSON_Bool(send2mqtt);
 	copyToJSON_String(host_mqtt);
+	copyToJSON_Int(port_mqtt);
 	copyToJSON_Bool(send2custom);
 	copyToJSON_String(host_custom);
-	copyToJSON_Int(port_mqtt);
 	copyToJSON_String(url_custom);
 	copyToJSON_Int(port_custom);
 	copyToJSON_String(user_custom);
@@ -2186,7 +2186,7 @@ void sendLuftdaten(const String& data, const int pin, const char* host, const in
 void send_lora(const String& data) {
 }
 
-
+/*
 void pscallback(char* topic, byte* payload, unsigned int length) {
 	debug_out(F("MQTT server Message arrived ["), DEBUG_MIN_INFO, 0);
 	debug_out(topic, DEBUG_MIN_INFO, 0);
@@ -2196,23 +2196,22 @@ void pscallback(char* topic, byte* payload, unsigned int length) {
 	for (int i = 0; i < length; i++) {
 		s+=(char)payload[i];
 	}
-	debug_out(s, DEBUG_MIN_INFO, 0);
-}
+	debug_out(s, DEBUG_MIN_INFO, 1);
+}*/
 
 bool psreconnect() {
-  // Loop until we're reconnected
   if (!psclient.connected()) {
-    debug_out(F("Attempting MQTT connection..."), DEBUG_MIN_INFO, 1);
-    // Create a random client ID
-    String clientId = "ESP8266Client-";
+  	debug_out(F("Attempting MQTT connection to server: "), DEBUG_MIN_INFO, 0);
+	debug_out(host_mqtt, DEBUG_MIN_INFO, 0);
+	debug_out(":", DEBUG_MIN_INFO, 0);
+	debug_out(String(port_mqtt), DEBUG_MIN_INFO, 1);
+
+    String clientId = "Feinstaubsensor-";
     clientId += esp_chipid;
 	psclient.setServer(host_mqtt, port_mqtt);
     // Attempt to connect
     if (psclient.connect(clientId.c_str())) {
       debug_out(F("MQTT client connected"), DEBUG_MIN_INFO, 1);
-      // Once connected, publish an announcement...
-//      psclient.publish("outTopic", "hello world");
-      // ... and resubscribe
 //      client.subscribe("inTopic");
     } else {
       debug_out(F("MQTT client connection failed, rc="), DEBUG_MIN_INFO, 0);
@@ -2237,16 +2236,14 @@ void send_mqtt(const String& data){
 		ret=psreconnect();
 	}
 	if(ret){
-//		if(!psclient.publish(mqtt_topic, "Hello!")){
-		if(!psclient.publish(mqtt_topic, buff,blen)){
+		if(!psclient.publish(mqtt_topic, buff,blen)){ //increase MQTT_MAX_PACKET_SIZE in PubSubClient.h!
 			debug_out(F("MQTT client publish failed! length = "), DEBUG_MIN_INFO, 0);
 			debug_out(String(blen) , DEBUG_MIN_INFO, 1);
 			debug_out(F("MQTT client  state = "), DEBUG_MIN_INFO, 0);
 			debug_out(String(psclient.state()) , DEBUG_MIN_INFO, 1);
 		}
-//	debug_out(F("Payload: "), DEBUG_MIN_INFO, 0);
-//	debug_out(buff, DEBUG_MIN_INFO, 1);
-//	psclient.publish();
+		debug_out(F("Payload: "), DEBUG_MAX_INFO, 0);
+		debug_out(buff, DEBUG_MAX_INFO, 1);
 	}
 	
 }
@@ -3697,11 +3694,9 @@ void setup() {
 	serialSDS.begin(9600);
 	debug_out(F("\nChipId: "), DEBUG_MIN_INFO, 0);
 	debug_out(esp_chipid, DEBUG_MIN_INFO, 1);
-	
-	debug_out(F("Connecting to mqtt server: "), DEBUG_MIN_INFO, 0);
-	debug_out(host_mqtt, DEBUG_MIN_INFO, 1);
+
 	psclient.setServer(host_mqtt, port_mqtt);
-	psclient.setCallback(pscallback);
+//	psclient.setCallback(pscallback);
 
 	if (ppd_read) {
 		pinMode(PPD_PIN_PM1, INPUT_PULLUP);                 // Listen at the designated PIN

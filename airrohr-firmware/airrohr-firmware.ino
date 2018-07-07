@@ -2227,7 +2227,7 @@ bool psreconnect() {
 // rejected (see issue #33)
 
 void send_mqtt(const String& data){
-	bool ret;
+	bool ret=true;
 	int blen=data.length()+1;
 	char buff[blen];
 	data.toCharArray(buff,blen);
